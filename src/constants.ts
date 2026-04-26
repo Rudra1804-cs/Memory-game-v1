@@ -20,3 +20,33 @@ export const COUNTRIES = [
   "Tuvalu", "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United States", "Uruguay", "Uzbekistan", "Vanuatu", "Vatican City",
   "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe"
 ];
+
+export const FRUITS = [
+  "Apple", "Banana", "Orange", "Strawberry", "Grape", "Mango", "Pineapple", "Watermelon", "Peach", "Cherry",
+  "Blueberry", "Raspberry", "Kiwi", "Pear", "Plum", "Apricot", "Pomegranate", "Lemon", "Lime", "Coconut",
+  "Avocado", "Papaya", "Guava", "Fig", "Date", "Lychee", "Dragon Fruit", "Passion Fruit", "Blackberry", "Cranberry",
+  "Canteloupe", "Honeydew", "Nectarine", "Tangerine", "Clementine", "Grapefruit", "Starfruit", "Jackfruit", "Durian", "Persimmon"
+];
+
+export const NAMES = [
+  "James", "Mary", "Robert", "Patricia", "John", "Jennifer", "Michael", "Linda", "David", "Elizabeth",
+  "William", "Barbara", "Richard", "Susan", "Joseph", "Jessica", "Thomas", "Sarah", "Christopher", "Karen",
+  "Charles", "Lisa", "Daniel", "Nancy", "Matthew", "Betty", "Anthony", "Margaret", "Mark", "Sandra",
+  "Donald", "Ashley", "Steven", "Dorothy", "Andrew", "Kimberly", "Paul", "Emily", "Joshua", "Donna",
+  "Kenneth", "Michelle", "Kevin", "Carol", "Brian", "Amanda", "George", "Melissa", "Timothy", "Deborah"
+];
+
+export const MOVIES = [
+  "Inception", "The Godfather", "Pulp Fiction", "The Dark Knight", "Schindler's List", "Fight Club", "Forrest Gump", "The Matrix", "Goodfellas", "Seven",
+  "The Silence of the Lambs", "City of God", "Interstellar", "Parasite", "The Green Mile", "Gladiator", "The Prestige", "The Lion King", "Memento", "The Departed",
+  "Whiplash", "The Intouchables", "The Pianist", "Django Unchained", "The Shining", "Aliens", "Titanic", "Avatar", "Jaws", "Die Hard",
+  "Blade Runner", "Oldboy", "Toy Story", "Psycho", "Snatch", "Requiem for a Dream", "Spider-Man", "Iron Man", "Toy Story 2", "Toy Story 3"
+];
+
+export const TOPICS = {
+  countries: { name: "Countries", data: COUNTRIES },
+  fruits: { name: "Fruits", data: FRUITS },
+  names: { name: "Names", data: NAMES },
+  movies: { name: "Movies", data: MOVIES }
+} as const;
+

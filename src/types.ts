@@ -1,4 +1,8 @@
+import { TOPICS } from './constants';
+
 export type GameStatus = 'setup' | 'playing' | 'elimination' | 'winner';
+
+export type TopicKey = keyof typeof TOPICS;
 
 export interface Player {
   id: string;
@@ -10,6 +14,8 @@ export interface Player {
 export interface GameState {
   players: Player[];
   currentTurnIndex: number;
-  countryChain: string[];
+  chain: string[];
   status: GameStatus;
+  topic: TopicKey;
 }
+

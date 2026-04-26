@@ -5,21 +5,23 @@
 
 import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Users, RefreshCw, AlertCircle, Play, ChevronRight, MapPin, Search, Plus } from 'lucide-react';
+import { Trophy, Users, RefreshCw, AlertCircle, Play, ChevronRight, MapPin, Search, Plus, Apple, User, Film, Globe } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { cn } from './lib/utils';
-import { COUNTRIES } from './constants';
-import { GameStatus, Player, GameState } from './types';
+import { TOPICS } from './constants';
+import { GameStatus, Player, GameState, TopicKey } from './types';
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>({
     players: [],
     currentTurnIndex: 0,
-    countryChain: [],
+    chain: [],
     status: 'setup',
+    topic: 'countries',
   });
 
   const [playerCountInput, setPlayerCountInput] = useState<string>('2');
+  const [selectedTopic, setSelectedTopic] = useState<TopicKey>('countries');
   const [currentInput, setCurrentInput] = useState<string>('');
   const [recallIndex, setRecallIndex] = useState<number>(0);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
@@ -28,6 +30,7 @@ export default function App() {
   const players = gameState.players;
   const currentPlayer = players[gameState.currentTurnIndex];
   const isAITurn = currentPlayer?.isAI;
+  const currentTopicData = TOPICS[gameState.topic].data;
 
   const showFeedback = useCallback((type: 'success' | 'error' | 'info', message: string) => {
     if (feedbackTimeoutRef.current) clearTimeout(feedbackTimeoutRef.current);
@@ -63,8 +66,9 @@ export default function App() {
     setGameState({
       players: newPlayers,
       currentTurnIndex: 0,
-      countryChain: [],
+      chain: [],
       status: 'playing',
+      topic: selectedTopic,
     });
     setRecallIndex(0);
     setCurrentInput('');
@@ -109,9 +113,8 @@ export default function App() {
     }
   };
 
-  const nextTurn = (newCountry: string) => {
+  const nextTurn = (newItem: string) => {
     setGameState(prev => {
-      const activePlayers = prev.players.filter(p => !p.isEliminated);
       let nextIndex = (prev.currentTurnIndex + 1) % prev.players.length;
       while (prev.players[nextIndex].isEliminated) {
         nextIndex = (nextIndex + 1) % prev.players.length;
@@ -119,13 +122,13 @@ export default function App() {
 
       return {
         ...prev,
-        countryChain: [...prev.countryChain, newCountry],
+        chain: [...prev.chain, newItem],
         currentTurnIndex: nextIndex,
       };
     });
     setRecallIndex(0);
     setCurrentInput('');
-    showFeedback('success', `Added ${newCountry}! Next turn.`);
+    showFeedback('success', `Added ${newItem}! Next turn.`);
   };
 
   const handleInputSubmit = (e?: FormEvent) => {
@@ -135,32 +138,32 @@ export default function App() {
     const normalizedInput = currentInput.trim().toLowerCase();
     
     // Phase 1: Recalling existing chain
-    if (recallIndex < gameState.countryChain.length) {
-      const expected = gameState.countryChain[recallIndex].toLowerCase();
+    if (recallIndex < gameState.chain.length) {
+      const expected = gameState.chain[recallIndex].toLowerCase();
       if (normalizedInput === expected) {
         setRecallIndex(prev => prev + 1);
         setCurrentInput('');
       } else {
-        eliminatePlayer(`Forgot/Misordered chain. Expected "${gameState.countryChain[recallIndex]}".`);
+        eliminatePlayer(`Sequence Error. Expected "${gameState.chain[recallIndex]}".`);
       }
     } 
-    // Phase 2: Adding a new country
+    // Phase 2: Adding a new item
     else {
-      const countryExists = COUNTRIES.some(c => c.toLowerCase() === normalizedInput);
-      const matchedCountry = COUNTRIES.find(c => c.toLowerCase() === normalizedInput) || currentInput.trim();
+      const itemExists = currentTopicData.some(item => item.toLowerCase() === normalizedInput);
+      const matchedItem = currentTopicData.find(item => item.toLowerCase() === normalizedInput) || currentInput.trim();
       
-      if (!countryExists) {
-        eliminatePlayer(`"${currentInput}" is not in our country list.`);
+      if (!itemExists) {
+        eliminatePlayer(`"${currentInput}" is not recognized in the ${TOPICS[gameState.topic].name} database.`);
         return;
       }
 
-      const isRepeat = gameState.countryChain.some(c => c.toLowerCase() === normalizedInput);
+      const isRepeat = gameState.chain.some(item => item.toLowerCase() === normalizedInput);
       if (isRepeat) {
-        eliminatePlayer(`"${matchedCountry}" was already used.`);
+        eliminatePlayer(`"${matchedItem}" was already used in this sequence.`);
         return;
       }
 
-      nextTurn(matchedCountry);
+      nextTurn(matchedItem);
     }
   };
 
@@ -169,9 +172,9 @@ export default function App() {
     if (isAITurn && gameState.status === 'playing') {
       const playAI = async () => {
         // Step 1: Recall existing
-        for (let i = 0; i < gameState.countryChain.length; i++) {
+        for (let i = 0; i < gameState.chain.length; i++) {
           await new Promise(r => setTimeout(r, 800));
-          setCurrentInput(gameState.countryChain[i]);
+          setCurrentInput(gameState.chain[i]);
           await new Promise(r => setTimeout(r, 400));
           setRecallIndex(i + 1);
           setCurrentInput('');
@@ -179,9 +182,9 @@ export default function App() {
 
         // Step 2: Add new
         await new Promise(r => setTimeout(r, 1000));
-        const unusedCountries = COUNTRIES.filter(c => !gameState.countryChain.includes(c));
-        const randomIndex = Math.floor(Math.random() * unusedCountries.length);
-        const choice = unusedCountries[randomIndex];
+        const unusedItems = currentTopicData.filter(item => !gameState.chain.includes(item));
+        const randomIndex = Math.floor(Math.random() * unusedItems.length);
+        const choice = unusedItems[randomIndex];
         
         setCurrentInput(choice);
         await new Promise(r => setTimeout(r, 600));
@@ -190,17 +193,26 @@ export default function App() {
 
       playAI();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAITurn, gameState.status, gameState.currentTurnIndex]);
+  }, [isAITurn, gameState.status, gameState.currentTurnIndex, currentTopicData, gameState.chain]);
 
   const resetGame = () => {
     setGameState({
       players: [],
       currentTurnIndex: 0,
-      countryChain: [],
+      chain: [],
       status: 'setup',
+      topic: 'countries',
     });
     setPlayerCountInput('2');
+  };
+
+  const getTopicIcon = (topic: TopicKey) => {
+    switch (topic) {
+      case 'countries': return <Globe className="w-5 h-5" />;
+      case 'fruits': return <Apple className="w-5 h-5" />;
+      case 'names': return <User className="w-5 h-5" />;
+      case 'movies': return <Film className="w-5 h-5" />;
+    }
   };
 
   return (
@@ -217,60 +229,89 @@ export default function App() {
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="flex-1 flex flex-col justify-center max-w-2xl"
+              className="flex-1 flex flex-col justify-center max-w-4xl"
             >
-              <div className="space-y-4 mb-16">
-                <p className="text-sky-400 font-mono text-sm tracking-[0.3em] uppercase">Game Master Protocol v1.0</p>
+              <div className="space-y-4 mb-8">
+                <p className="text-sky-400 font-mono text-sm tracking-[0.3em] uppercase">Multi-Topic Neural Link Active</p>
                 <h1 className="text-7xl md:text-9xl font-black tracking-tighter uppercase italic leading-[0.8] mb-8">
-                  Country<br />Chain
+                  The<br />Chain
                 </h1>
                 <p className="text-slate-400 text-lg max-w-md font-medium leading-relaxed">
-                  A high-velocity memory challenge. Build the chain. Don{"'"}t break the sequence.
+                  A high-velocity memory challenge across multiple domains. Build the sequence. Reach singularity.
                 </p>
               </div>
 
-              <div className="space-y-12">
-                <div className="space-y-6">
-                  <div className="flex items-center gap-3">
-                    <span className="text-slate-500 uppercase text-xs font-bold tracking-widest">Select AI Opponents</span>
-                    <div className="h-px flex-1 bg-slate-800" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                <div className="space-y-8">
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-500 uppercase text-xs font-bold tracking-widest">Select Domain</span>
+                      <div className="h-px flex-1 bg-slate-800" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {(Object.keys(TOPICS) as TopicKey[]).map((topic) => (
+                        <button
+                          key={topic}
+                          onClick={() => setSelectedTopic(topic)}
+                          className={cn(
+                            "group p-6 rounded-2xl border-2 flex flex-col gap-4 text-left transition-all",
+                            selectedTopic === topic
+                              ? "bg-sky-500 border-sky-500 text-slate-950 shadow-[0_0_30px_rgba(14,165,233,0.3)]"
+                              : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-600"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-10 h-10 rounded-xl flex items-center justify-center",
+                            selectedTopic === topic ? "bg-slate-950 text-sky-500" : "bg-slate-800 text-slate-500 group-hover:text-slate-300"
+                          )}>
+                            {getTopicIcon(topic)}
+                          </div>
+                          <span className="font-black uppercase tracking-tighter text-xl">{TOPICS[topic].name}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  
-                  <div className="flex flex-wrap gap-4">
-                    {[1, 2, 3, 4, 5].map((num) => (
-                      <button
-                        key={num}
-                        onClick={() => setPlayerCountInput(num.toString())}
-                        className={cn(
-                          "w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black transition-all border-2",
-                          playerCountInput === num.toString() 
-                            ? "bg-sky-500 text-slate-950 border-sky-500 scale-110 shadow-[0_0_20px_rgba(14,165,233,0.3)]" 
-                            : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600"
-                        )}
-                      >
-                        {num}
-                      </button>
-                    ))}
-                    <div className="relative">
+                </div>
+
+                <div className="space-y-8">
+                  <div className="space-y-6">
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-500 uppercase text-xs font-bold tracking-widest">AI Entities</span>
+                      <div className="h-px flex-1 bg-slate-800" />
+                    </div>
+                    <div className="flex flex-wrap gap-4">
+                      {[1, 2, 3, 4, 5].map((num) => (
+                        <button
+                          key={num}
+                          onClick={() => setPlayerCountInput(num.toString())}
+                          className={cn(
+                            "w-16 h-16 rounded-2xl flex items-center justify-center text-xl font-black transition-all border-2",
+                            playerCountInput === num.toString() 
+                              ? "bg-sky-500 text-slate-950 border-sky-500 scale-110" 
+                              : "bg-slate-900 text-slate-400 border-slate-800 hover:border-slate-600"
+                          )}
+                        >
+                          {num}
+                        </button>
+                      ))}
                       <input
                         type="number"
-                        placeholder="Custom"
-                        className="w-24 h-16 rounded-2xl bg-slate-900 border-2 border-slate-800 focus:border-sky-500 outline-none text-center font-black text-xl transition-all"
+                        placeholder="+"
+                        className="w-16 h-16 rounded-2xl bg-slate-900 border-2 border-slate-800 focus:border-sky-500 outline-none text-center font-black text-xl transition-all"
                         value={playerCountInput}
                         onChange={(e) => setPlayerCountInput(e.target.value)}
                       />
                     </div>
                   </div>
-                </div>
 
-                <button
-                  onClick={startGame}
-                  className="group relative inline-flex items-center gap-6 px-12 py-6 bg-sky-500 text-slate-950 rounded-full font-black uppercase tracking-tighter transition-all hover:bg-sky-400 hover:scale-105 active:scale-95"
-                >
-                  <span className="text-xl">Begin Protocol</span>
-                  <ChevronRight className="w-6 h-6 transition-transform group-hover:translate-x-2" />
-                  <div className="absolute inset-0 rounded-full border-4 border-sky-500 scale-110 opacity-0 group-hover:opacity-20 transition-all" />
-                </button>
+                  <button
+                    onClick={startGame}
+                    className="w-full group relative inline-flex items-center justify-between px-12 py-8 bg-sky-500 text-slate-950 rounded-3xl font-black uppercase tracking-tighter transition-all hover:bg-sky-400 hover:scale-[1.02] active:scale-95 shadow-xl shadow-sky-500/20"
+                  >
+                    <span className="text-2xl">Initialize Match</span>
+                    <ChevronRight className="w-8 h-8 transition-transform group-hover:translate-x-2" />
+                  </button>
+                </div>
               </div>
             </motion.div>
           )}
@@ -286,14 +327,14 @@ export default function App() {
               {/* Game Header */}
               <header className="flex justify-between items-end border-b border-slate-800 pb-8">
                 <div>
-                  <p className="text-sky-400 font-mono text-sm tracking-widest uppercase mb-2">Active Memory Engine</p>
-                  <h1 className="text-5xl font-black tracking-tighter uppercase italic">Country Chain</h1>
+                  <p className="text-sky-400 font-mono text-sm tracking-widest uppercase mb-2">Domain: {TOPICS[gameState.topic].name}</p>
+                  <h1 className="text-5xl font-black tracking-tighter uppercase italic">{TOPICS[gameState.topic].name} Chain</h1>
                 </div>
                 <div className="flex gap-8 items-end">
                   <div className="text-right">
                     <p className="text-slate-500 uppercase text-xs font-bold tracking-widest mb-1">Index</p>
                     <p className="text-5xl font-mono leading-none font-bold text-sky-400">
-                      {String(gameState.countryChain.length).padStart(2, '0')}
+                      {String(gameState.chain.length).padStart(2, '0')}
                     </p>
                   </div>
                   <button onClick={resetGame} className="mb-1 p-2 bg-slate-900 rounded-lg hover:bg-slate-800 transition-colors border border-slate-800">
@@ -305,7 +346,7 @@ export default function App() {
               <div className="flex-1 grid grid-cols-12 gap-12">
                 {/* Player Sidebar */}
                 <aside className="col-span-12 lg:col-span-3 flex flex-col gap-6">
-                  <h3 className="text-slate-500 uppercase text-xs font-bold tracking-widest">Personnel</h3>
+                  <h3 className="text-slate-500 uppercase text-xs font-bold tracking-widest">Network Units</h3>
                   <div className="space-y-3">
                     {players.map((p) => (
                       <div 
@@ -331,7 +372,7 @@ export default function App() {
                             {p.name}
                           </span>
                           <span className="text-[10px] text-slate-500 font-mono tracking-tighter">
-                            {p.id === currentPlayer?.id ? "PROTOCOL ACTIVE" : p.isEliminated ? "DISCONNECTED" : "STANDBY"}
+                            {p.id === currentPlayer?.id ? "ACTIVE NODE" : p.isEliminated ? "DE-SYNCED" : "LINKED"}
                           </span>
                         </div>
                       </div>
@@ -344,10 +385,10 @@ export default function App() {
                   <div className="flex items-center justify-between">
                     <div>
                       <span className="bg-sky-500 text-slate-950 px-2 py-0.5 text-xs font-black uppercase tracking-tighter">
-                        Current Sequence
+                        Current Memory Trace
                       </span>
                       <h2 className="text-4xl font-bold mt-2 uppercase tracking-tighter">
-                        {isAITurn ? "AI IS RECALLING..." : `${currentPlayer?.name}'s Turn`}
+                        {isAITurn ? "AI IS PROCESSING..." : `Your Turn: Recall Sequence`}
                       </h2>
                     </div>
                   </div>
@@ -355,7 +396,7 @@ export default function App() {
                   {/* The Chain Scroll Area */}
                   <div className="flex-1 bg-slate-900/20 rounded-[2rem] border-2 border-slate-900 p-8 min-h-[300px] overflow-y-auto">
                     <div className="flex flex-wrap gap-6 content-start justify-center py-10">
-                      {gameState.countryChain.map((country, idx) => (
+                      {gameState.chain.map((_, idx) => (
                         <div key={idx} className="flex flex-col items-center gap-3">
                           <motion.div
                             initial={{ scale: 0 }}
@@ -381,7 +422,7 @@ export default function App() {
                               <motion.span
                                 initial={{ opacity: 0, y: -10 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className="text-[10px] font-black uppercase text-sky-400 tracking-widest"
+                                className="text-[10px] font-black uppercase text-sky-400 tracking-widest text-center"
                               >
                                 Target Node
                               </motion.span>
@@ -389,7 +430,7 @@ export default function App() {
                           </AnimatePresence>
                         </div>
                       ))}
-                      {recallIndex === gameState.countryChain.length && (
+                      {recallIndex === gameState.chain.length && (
                         <motion.div
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
@@ -399,10 +440,10 @@ export default function App() {
                         </motion.div>
                       )}
                       
-                      {gameState.countryChain.length === 0 && (
+                      {gameState.chain.length === 0 && (
                         <div className="w-full flex flex-col items-center justify-center py-20 text-slate-800 gap-4">
                           <MapPin className="w-24 h-24 stroke-[4]" />
-                          <p className="font-mono text-sm uppercase tracking-widest">Neural Network Empty</p>
+                          <p className="font-mono text-sm uppercase tracking-widest">Neural Network Synced</p>
                         </div>
                       )}
                     </div>
@@ -422,7 +463,7 @@ export default function App() {
                           "w-full h-20 bg-slate-900 rounded-3xl border-2 border-slate-800 px-16 text-2xl font-black uppercase tracking-tighter outline-none focus:border-sky-500 transition-all placeholder:text-slate-800",
                           isAITurn && "opacity-50 grayscale"
                         )}
-                        placeholder={recallIndex < gameState.countryChain.length ? "RECALL PREVIOUS..." : "ADD NEW COUNTRY..."}
+                        placeholder={recallIndex < gameState.chain.length ? `RECALL #${recallIndex + 1}...` : "APPEND NEW NODE..."}
                         value={currentInput}
                         onChange={(e) => setCurrentInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && handleInputSubmit()}
@@ -433,7 +474,7 @@ export default function App() {
                       disabled={isAITurn}
                       className="h-20 px-12 bg-sky-500 hover:bg-sky-400 text-slate-950 font-black uppercase tracking-tighter transition-all rounded-3xl disabled:opacity-50 disabled:grayscale"
                     >
-                      Process Input
+                      Sync Link
                     </button>
                   </div>
                 </div>
@@ -457,18 +498,18 @@ export default function App() {
               </div>
               
               <div className="space-y-4">
-                <p className="text-sky-400 font-mono text-xl tracking-[0.4em] uppercase font-bold">Supreme Champion</p>
+                <p className="text-sky-400 font-mono text-xl tracking-[0.4em] uppercase font-bold">Supreme Network Authority</p>
                 <h2 className="text-7xl md:text-[8rem] font-black tracking-tighter uppercase italic border-y-8 border-sky-500/10 py-8">
                   {players.find(p => !p.isEliminated)?.name}
                 </h2>
                 <div className="flex justify-center gap-12 pt-8">
                   <div className="text-center">
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Final Chain</p>
-                    <p className="text-5xl font-black text-sky-400">{gameState.countryChain.length}</p>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Sequence Depth</p>
+                    <p className="text-5xl font-black text-sky-400">{gameState.chain.length}</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Precision</p>
-                    <p className="text-5xl font-black text-slate-100">100%</p>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Memory Latency</p>
+                    <p className="text-5xl font-black text-slate-100">0.0ms</p>
                   </div>
                 </div>
               </div>
@@ -477,7 +518,7 @@ export default function App() {
                 onClick={resetGame}
                 className="px-16 py-6 bg-slate-50 text-slate-950 rounded-full font-black text-xl uppercase tracking-tighter hover:bg-white hover:scale-105 transition-all"
               >
-                Restart Session
+                Re-Initialize
               </button>
             </motion.div>
           )}
@@ -491,7 +532,7 @@ export default function App() {
           System Online: Memory Engine Active
         </div>
         <div className="text-slate-600 font-mono text-[10px] uppercase tracking-[0.3em] font-bold">
-          Strict Order Mode: Enabled
+          Topic Domain: {TOPICS[gameState.topic].name}
         </div>
       </footer>
 
