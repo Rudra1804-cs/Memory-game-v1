@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Users, RefreshCw, AlertCircle, Play, ChevronRight, MapPin, Search, Plus, Apple, User, Film, Globe } from 'lucide-react';
+import { Trophy, Users, RefreshCw, AlertCircle, Play, ChevronRight, MapPin, Search, Plus, Apple, User, Film, Globe, Mic, MicOff } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { cn } from './lib/utils';
 import { TOPICS } from './constants';
@@ -23,9 +23,14 @@ export default function App() {
   const [playerCountInput, setPlayerCountInput] = useState<string>('2');
   const [selectedTopic, setSelectedTopic] = useState<TopicKey>('countries');
   const [currentInput, setCurrentInput] = useState<string>('');
+  const [isListening, setIsListening] = useState<boolean>(false);
   const [recallIndex, setRecallIndex] = useState<number>(0);
+  const [topicLog, setTopicLog] = useState<{ item: string, player: string }[]>([]);
+  const [showHowTo, setShowHowTo] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const feedbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const recognitionRef = useRef<any>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const players = gameState.players;
   const currentPlayer = players[gameState.currentTurnIndex];
@@ -37,6 +42,104 @@ export default function App() {
     setFeedback({ type, message });
     feedbackTimeoutRef.current = setTimeout(() => setFeedback(null), 3000);
   }, []);
+
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((result: any) => result[0])
+          .map((result: any) => result.transcript)
+          .join('');
+        setCurrentInput(transcript);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognition.onerror = (event: any) => {
+        let message = `Speech error: ${event.error}`;
+        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+          message = 'Microphone blocked. Click "OPEN IN NEW TAB" top right.';
+          showFeedback('error', message);
+          setShowHowTo(true); 
+        } else if (event.error === 'no-speech') {
+          setIsListening(false);
+          return;
+        } else if (event.error === 'network') {
+          message = 'Network error during speech recognition.';
+          showFeedback('error', message);
+        } else if (event.error === 'aborted') {
+          setIsListening(false);
+          return;
+        } else {
+          console.error('Speech recognition error', event.error);
+          showFeedback('error', message);
+        }
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+  }, [showFeedback]);
+
+  const toggleListening = () => {
+    if (isListening) {
+      try {
+        recognitionRef.current?.stop();
+      } catch (err) {
+        console.error('Stop error:', err);
+      }
+      setIsListening(false);
+    } else {
+      if (!recognitionRef.current) {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          showFeedback('error', 'Speech recognition is not supported in this browser.');
+          return;
+        }
+        const recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+        recognition.onresult = (event: any) => {
+          const transcript = Array.from(event.results)
+            .map((result: any) => result[0])
+            .map((result: any) => result.transcript)
+            .join('');
+          setCurrentInput(transcript);
+        };
+        recognition.onend = () => setIsListening(false);
+        recognition.onerror = (event: any) => {
+          console.error('Speech error:', event.error);
+          if (event.error !== 'no-speech' && event.error !== 'aborted') {
+            showFeedback('error', `Speech error: ${event.error}. Try checking microphone permissions.`);
+          }
+          setIsListening(false);
+        };
+        recognitionRef.current = recognition;
+      }
+      
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (err: any) {
+        if (err.name === 'InvalidStateError') {
+          setIsListening(true);
+        } else {
+          console.error('Failed to start recognition:', err);
+          showFeedback('error', 'Could not start microphone. Ensure it is not in use.');
+          setIsListening(false);
+        }
+      }
+    }
+  };
 
   const startGame = () => {
     const aiCount = parseInt(playerCountInput);
@@ -70,74 +173,45 @@ export default function App() {
       status: 'playing',
       topic: selectedTopic,
     });
+    setTopicLog([]);
     setRecallIndex(0);
     setCurrentInput('');
     setFeedback(null);
   };
 
-  const eliminatePlayer = (reason: string) => {
-    const playerToEliminate = players[gameState.currentTurnIndex];
-    const updatedPlayers = players.map(p => 
-      p.id === playerToEliminate.id ? { ...p, isEliminated: true } : p
-    );
+  const suggestions = (() => {
+    const input = currentInput.toLowerCase().trim();
+    if (input.length < 2) return [];
 
-    const activePlayers = updatedPlayers.filter(p => !p.isEliminated);
-    
-    if (activePlayers.length === 1) {
-      setGameState(prev => ({
-        ...prev,
-        players: updatedPlayers,
-        status: 'winner'
-      }));
-      confetti({
-        particleCount: 150,
-        spread: 70,
-        origin: { y: 0.6 }
-      });
-    } else {
-      setGameState(prev => {
-        let nextIndex = (prev.currentTurnIndex + 1) % prev.players.length;
-        while (updatedPlayers[nextIndex].isEliminated) {
-          nextIndex = (nextIndex + 1) % prev.players.length;
-        }
-        return {
-          ...prev,
-          players: updatedPlayers,
-          currentTurnIndex: nextIndex,
-          status: 'playing'
-        };
-      });
-      setRecallIndex(0);
-      setCurrentInput('');
-      showFeedback('error', `${playerToEliminate.name} eliminated: ${reason}`);
-    }
-  };
-
-  const nextTurn = (newItem: string) => {
-    setGameState(prev => {
-      let nextIndex = (prev.currentTurnIndex + 1) % prev.players.length;
-      while (prev.players[nextIndex].isEliminated) {
-        nextIndex = (nextIndex + 1) % prev.players.length;
+    // Case 1: Recalling the sequence
+    if (recallIndex < gameState.chain.length) {
+      const target = gameState.chain[recallIndex];
+      const targetLower = target.toLowerCase();
+      
+      if (targetLower.startsWith(input) && input.length >= (targetLower.length * 0.4)) {
+        return [target];
       }
+      return [];
+    }
 
-      return {
-        ...prev,
-        chain: [...prev.chain, newItem],
-        currentTurnIndex: nextIndex,
-      };
-    });
-    setRecallIndex(0);
-    setCurrentInput('');
-    showFeedback('success', `Added ${newItem}! Next turn.`);
-  };
+    // Case 2: Adding a new node
+    return currentTopicData.filter(item => {
+      const itemLower = item.toLowerCase();
+      const startsWith = itemLower.startsWith(input);
+      const isThresholdMet = input.length >= (itemLower.length * 0.4);
+      const isAlreadyUsed = gameState.chain.some(c => c.toLowerCase() === itemLower);
+      
+      return startsWith && isThresholdMet && !isAlreadyUsed;
+    }).slice(0, 3);
+  })();
 
-  const handleInputSubmit = (e?: FormEvent) => {
+  const handleInputSubmit = (e?: FormEvent, overrideValue?: string) => {
     e?.preventDefault();
-    if (!currentInput.trim()) return;
+    const targetValue = overrideValue || currentInput;
+    if (!targetValue.trim()) return;
 
-    const normalizedInput = currentInput.trim().toLowerCase();
+    const normalizedInput = targetValue.trim().toLowerCase();
     
-    // Phase 1: Recalling existing chain
     if (recallIndex < gameState.chain.length) {
       const expected = gameState.chain[recallIndex].toLowerCase();
       if (normalizedInput === expected) {
@@ -147,13 +221,12 @@ export default function App() {
         eliminatePlayer(`Sequence Error. Expected "${gameState.chain[recallIndex]}".`);
       }
     } 
-    // Phase 2: Adding a new item
     else {
       const itemExists = currentTopicData.some(item => item.toLowerCase() === normalizedInput);
-      const matchedItem = currentTopicData.find(item => item.toLowerCase() === normalizedInput) || currentInput.trim();
+      const matchedItem = currentTopicData.find(item => item.toLowerCase() === normalizedInput) || targetValue.trim();
       
       if (!itemExists) {
-        eliminatePlayer(`"${currentInput}" is not recognized in the ${TOPICS[gameState.topic].name} database.`);
+        eliminatePlayer(`"${targetValue}" is not recognized in the ${TOPICS[gameState.topic].name} database.`);
         return;
       }
 
@@ -167,33 +240,149 @@ export default function App() {
     }
   };
 
+  // Auto-focus input for human
+  useEffect(() => {
+    if (!isAITurn && gameState.status === 'playing') {
+      inputRef.current?.focus();
+    }
+  }, [isAITurn, gameState.status, recallIndex]);
+
+  // Mirror state in refs for async work (AI loop)
+  const gameStateRef = useRef(gameState);
+  const recallIndexRef = useRef(recallIndex);
+  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+  useEffect(() => { recallIndexRef.current = recallIndex; }, [recallIndex]);
+
+  const speak = (text: string) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.75; // Slower, more natural cadence
+      utterance.pitch = 0.9; 
+      const voices = window.speechSynthesis.getVoices();
+      // Prioritize natural sounding English voices
+      const preferred = voices.find(v => (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('Premium')) && v.lang.startsWith('en')) 
+                    || voices.find(v => v.lang.startsWith('en'));
+      if (preferred) utterance.voice = preferred;
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  const nextTurn = useCallback((newItem: string) => {
+    setGameState(prev => {
+      let nextIndex = (prev.currentTurnIndex + 1) % prev.players.length;
+      while (prev.players[nextIndex].isEliminated) {
+        nextIndex = (nextIndex + 1) % prev.players.length;
+      }
+      
+      const currentPlayerName = prev.players[prev.currentTurnIndex].name;
+      setTopicLog(log => [{ item: newItem, player: currentPlayerName }, ...log]);
+
+      return {
+        ...prev,
+        chain: [...prev.chain, newItem],
+        currentTurnIndex: nextIndex,
+      };
+    });
+    setRecallIndex(0);
+    setCurrentInput('');
+    showFeedback('success', `Node Linked: ${newItem}`);
+  }, [showFeedback]);
+
+  const eliminatePlayer = useCallback((reason: string) => {
+    setGameState(prev => {
+      const currentPlayerIndex = prev.currentTurnIndex;
+      const playerToEliminate = prev.players[currentPlayerIndex];
+      const updatedPlayers = prev.players.map(p => 
+        p.id === playerToEliminate.id ? { ...p, isEliminated: true } : p
+      );
+
+      const activePlayers = updatedPlayers.filter(p => !p.isEliminated);
+      
+      if (activePlayers.length === 1) {
+        confetti({
+          particleCount: 150,
+          spread: 70,
+          origin: { y: 0.6 }
+        });
+        return {
+          ...prev,
+          players: updatedPlayers,
+          status: 'winner'
+        };
+      } else {
+        let nextIndex = (currentPlayerIndex + 1) % prev.players.length;
+        while (updatedPlayers[nextIndex].isEliminated) {
+          nextIndex = (nextIndex + 1) % prev.players.length;
+        }
+        showFeedback('error', `${playerToEliminate.name} eliminated: ${reason}`);
+        return {
+          ...prev,
+          players: updatedPlayers,
+          currentTurnIndex: nextIndex,
+          status: 'playing'
+        };
+      }
+    });
+    setRecallIndex(0);
+    setCurrentInput('');
+  }, [showFeedback]);
+
   // AI Turn Logic
   useEffect(() => {
     if (isAITurn && gameState.status === 'playing') {
       const playAI = async () => {
+        const game = gameStateRef.current;
+        
         // Step 1: Recall existing
-        for (let i = 0; i < gameState.chain.length; i++) {
-          await new Promise(r => setTimeout(r, 800));
-          setCurrentInput(gameState.chain[i]);
-          await new Promise(r => setTimeout(r, 400));
+        for (let i = 0; i < game.chain.length; i++) {
+          const delay = 400 + Math.random() * 600;
+          await new Promise(r => setTimeout(r, delay));
+          const currentItem = game.chain[i];
+          
+          // Simulation of "typing" or "thinking"
+          for (let charIdx = 1; charIdx <= currentItem.length; charIdx++) {
+             setCurrentInput(currentItem.substring(0, charIdx));
+             await new Promise(r => setTimeout(r, 20 + Math.random() * 50));
+          }
+          
+          speak(currentItem);
+          await new Promise(r => setTimeout(r, 600));
           setRecallIndex(i + 1);
           setCurrentInput('');
         }
 
         // Step 2: Add new
         await new Promise(r => setTimeout(r, 1000));
-        const unusedItems = currentTopicData.filter(item => !gameState.chain.includes(item));
+        const unusedItems = currentTopicData.filter(item => 
+          !gameStateRef.current.chain.some(c => c.toLowerCase() === item.toLowerCase())
+        );
+
+        if (unusedItems.length === 0) {
+           eliminatePlayer("Out of options in current domain.");
+           return;
+        }
+
         const randomIndex = Math.floor(Math.random() * unusedItems.length);
         const choice = unusedItems[randomIndex];
         
-        setCurrentInput(choice);
-        await new Promise(r => setTimeout(r, 600));
+        // Typing simulation for new word
+        for (let charIdx = 1; charIdx <= choice.length; charIdx++) {
+           setCurrentInput(choice.substring(0, charIdx));
+           await new Promise(r => setTimeout(r, 30 + Math.random() * 70));
+        }
+
+        speak(choice);
+        await new Promise(r => setTimeout(r, 1200));
+        
+        // Use nextTurn directly to avoid state sync issues in recallIndex during AI turn
         nextTurn(choice);
       };
 
       playAI();
     }
-  }, [isAITurn, gameState.status, gameState.currentTurnIndex, currentTopicData, gameState.chain]);
+  }, [isAITurn, gameState.status, gameState.currentTurnIndex, currentTopicData, nextTurn, eliminatePlayer]);
+
 
   const resetGame = () => {
     setGameState({
@@ -216,9 +405,29 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-sky-500/30 overflow-x-hidden">
+    <div className="min-h-screen bg-slate-950 text-slate-50 font-sans selection:bg-sky-500/30 overflow-x-hidden relative">
+      {/* Background Neural Grid */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#1e293b_1px,transparent_1px),linear-gradient(to_bottom,#1e293b_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] opacity-20" />
+        {/* Distant Particles/Neurons */}
+        <div className="absolute inset-0">
+          {[...Array(20)].map((_, i) => (
+             <motion.div
+               key={i}
+               className="absolute w-1 h-1 bg-sky-500/20 rounded-full"
+               animate={{ 
+                 x: [Math.random() * 100 + '%', Math.random() * 100 + '%'],
+                 y: [Math.random() * 100 + '%', Math.random() * 100 + '%'],
+                 opacity: [0, 0.5, 0]
+               }}
+               transition={{ duration: 10 + Math.random() * 20, repeat: Infinity, ease: "linear" }}
+             />
+          ))}
+        </div>
+      </div>
+
       {/* Header Accent */}
-      <div className="fixed top-0 left-0 w-full h-1 bg-sky-500 z-50" />
+      <div className="fixed top-0 left-0 w-full h-1 bg-sky-500 z-50 shadow-[0_0_15px_rgba(14,165,233,0.5)]" />
 
       <main className="max-w-[1200px] mx-auto px-6 py-12 min-h-screen flex flex-col">
         <AnimatePresence mode="wait">
@@ -232,7 +441,15 @@ export default function App() {
               className="flex-1 flex flex-col justify-center max-w-4xl"
             >
               <div className="space-y-4 mb-8">
-                <p className="text-sky-400 font-mono text-sm tracking-[0.3em] uppercase">Multi-Topic Neural Link Active</p>
+                <div className="flex items-center gap-4">
+                  <p className="text-sky-400 font-mono text-sm tracking-[0.3em] uppercase">Multi-Topic Neural Link Active</p>
+                  <button 
+                    onClick={() => setShowHowTo(true)}
+                    className="text-[10px] bg-slate-900 border border-slate-800 px-2 py-0.5 rounded text-slate-500 hover:text-sky-400 hover:border-sky-500 transition-all font-mono"
+                  >
+                    [HOW TO OPERATE]
+                  </button>
+                </div>
                 <h1 className="text-7xl md:text-9xl font-black tracking-tighter uppercase italic leading-[0.8] mb-8">
                   The<br />Chain
                 </h1>
@@ -345,39 +562,44 @@ export default function App() {
 
               <div className="flex-1 grid grid-cols-12 gap-12">
                 {/* Player Sidebar */}
-                <aside className="col-span-12 lg:col-span-3 flex flex-col gap-6">
-                  <h3 className="text-slate-500 uppercase text-xs font-bold tracking-widest">Network Units</h3>
-                  <div className="space-y-3">
-                    {players.map((p) => (
-                      <div 
-                        key={p.id} 
-                        className={cn(
-                          "flex items-center gap-4 p-4 rounded-xl border-l-[6px] transition-all",
-                          p.id === currentPlayer?.id 
-                            ? "bg-slate-900 border-sky-400 shadow-xl scale-[1.02]" 
-                            : "bg-slate-900/30 border-transparent opacity-60",
-                          p.isEliminated && "bg-red-950/10 border-red-500 opacity-40 grayscale"
-                        )}
-                      >
-                        <div className={cn(
-                          "w-2 h-2 rounded-full",
-                          p.id === currentPlayer?.id ? "bg-sky-400 animate-pulse" : "bg-slate-600",
-                          p.isEliminated && "bg-red-500"
-                        )} />
-                        <div className="flex-1 min-w-0">
-                          <span className={cn(
-                            "font-bold tracking-tight block truncate uppercase",
-                            p.isEliminated && "line-through text-red-400"
-                          )}>
-                            {p.name}
-                          </span>
-                          <span className="text-[10px] text-slate-500 font-mono tracking-tighter">
-                            {p.id === currentPlayer?.id ? "ACTIVE NODE" : p.isEliminated ? "DE-SYNCED" : "LINKED"}
-                          </span>
+                <aside className="col-span-12 lg:col-span-3 flex flex-col gap-8 h-full max-h-[calc(100vh-20rem)]">
+                  <div className="space-y-4">
+                    <h3 className="text-slate-500 uppercase text-xs font-bold tracking-widest">Network Units</h3>
+                    <div className="space-y-3">
+                      {players.map((p) => (
+                        <div 
+                          key={p.id} 
+                          className={cn(
+                            "flex items-center gap-4 p-4 rounded-xl border-l-[6px] transition-all",
+                            p.id === currentPlayer?.id 
+                              ? "bg-slate-900 border-sky-400 shadow-xl scale-[1.02]" 
+                              : "bg-slate-900/30 border-transparent opacity-60",
+                            p.isEliminated && "bg-red-950/10 border-red-500 opacity-40 grayscale"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-2 h-2 rounded-full",
+                            p.id === currentPlayer?.id ? "bg-sky-400 animate-pulse" : "bg-slate-600",
+                            p.isEliminated && "bg-red-500"
+                          )} />
+                          <div className="flex-1 min-w-0">
+                            <span className={cn(
+                              "font-bold tracking-tight block truncate uppercase",
+                              p.isEliminated && "line-through text-red-400"
+                            )}>
+                              {p.name}
+                            </span>
+                            <span className="text-[10px] text-slate-500 font-mono tracking-tighter">
+                              {p.id === currentPlayer?.id ? "ACTIVE NODE" : p.isEliminated ? "DE-SYNCED" : "LINKED"}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
+
+                  {/* Sidebar empty space */}
+                  <div className="flex-1" />
                 </aside>
 
                 {/* Main Chain Content */}
@@ -387,64 +609,104 @@ export default function App() {
                       <span className="bg-sky-500 text-slate-950 px-2 py-0.5 text-xs font-black uppercase tracking-tighter">
                         Current Memory Trace
                       </span>
-                      <h2 className="text-4xl font-bold mt-2 uppercase tracking-tighter">
-                        {isAITurn ? "AI IS PROCESSING..." : `Your Turn: Recall Sequence`}
+                      <h2 className="text-4xl font-bold mt-2 uppercase tracking-tighter flex items-center gap-4">
+                        {isAITurn ? (
+                          <>
+                            <span className="text-sky-400">AI IS PROCESSING</span>
+                            <span className="flex gap-1">
+                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1 }} className="w-1.5 h-1.5 bg-sky-400 rounded-full" />
+                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1, delay: 0.3 }} className="w-1.5 h-1.5 bg-sky-400 rounded-full" />
+                              <motion.span animate={{ opacity: [0, 1, 0] }} transition={{ repeat: Infinity, duration: 1, delay: 0.6 }} className="w-1.5 h-1.5 bg-sky-400 rounded-full" />
+                            </span>
+                          </>
+                        ) : (
+                          `Your Turn: Recall Sequence`
+                        )}
                       </h2>
                     </div>
                   </div>
 
-                  {/* The Chain Scroll Area */}
-                  <div className="flex-1 bg-slate-900/20 rounded-[2rem] border-2 border-slate-900 p-8 min-h-[300px] overflow-y-auto">
-                    <div className="flex flex-wrap gap-6 content-start justify-center py-10">
-                      {gameState.chain.map((_, idx) => (
-                        <div key={idx} className="flex flex-col items-center gap-3">
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ 
-                              scale: 1,
-                              backgroundColor: idx < recallIndex ? '#38bdf8' : '#0f172a',
-                              boxShadow: idx === recallIndex ? '0 0 30px rgba(56, 189, 248, 0.4)' : 'none'
-                            }}
-                            className={cn(
-                              "w-16 h-16 rounded-full border-4 flex items-center justify-center transition-all",
-                              idx === recallIndex ? "border-sky-400" : "border-slate-800"
-                            )}
-                          >
-                            <span className={cn(
-                              "font-mono text-xs font-bold",
-                              idx < recallIndex ? "text-slate-950" : "text-slate-500"
-                            )}>
-                              {String(idx + 1).padStart(2, '0')}
-                            </span>
-                          </motion.div>
-                          <AnimatePresence>
-                            {(idx === recallIndex && !isAITurn) && (
-                              <motion.span
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className="text-[10px] font-black uppercase text-sky-400 tracking-widest text-center"
-                              >
-                                Target Node
-                              </motion.span>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                      ))}
-                      {recallIndex === gameState.chain.length && (
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          className="w-16 h-16 rounded-full border-4 border-dashed border-sky-400/30 flex items-center justify-center"
-                        >
-                          <Plus className="w-6 h-6 text-sky-400/30" />
-                        </motion.div>
-                      )}
+                  {/* Hidden Memory Interface - Neural Core */}
+                  <div className="flex-1 bg-slate-900/10 rounded-[3rem] border-2 border-slate-900/50 p-12 min-h-[400px] flex flex-col items-center justify-center relative overflow-hidden group">
+                    {/* SVG Filters for "Natural" Pulse */}
+                    <svg className="absolute w-0 h-0">
+                      <filter id="neural-glow">
+                        <feGaussianBlur stdDeviation="15" result="blur" />
+                        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                      </filter>
+                    </svg>
+
+                    <div className="absolute inset-0 opacity-20 pointer-events-none">
+                      <div className="w-full h-full bg-[radial-gradient(circle_at_center,#38bdf8_0,transparent_70%)] animate-pulse" />
+                    </div>
+                    
+                    <div className="relative">
+                      <motion.div 
+                        animate={{ 
+                          scale: [1, 1.1, 1],
+                          rotate: [0, 90, 180, 270, 360],
+                          opacity: [0.2, 0.4, 0.2] 
+                        }}
+                        transition={{ repeat: Infinity, duration: 10, ease: "linear" }}
+                        className="w-64 h-64 rounded-full border-2 border-dashed border-sky-400/20 absolute -top-8 -left-8"
+                      />
                       
-                      {gameState.chain.length === 0 && (
-                        <div className="w-full flex flex-col items-center justify-center py-20 text-slate-800 gap-4">
-                          <MapPin className="w-24 h-24 stroke-[4]" />
-                          <p className="font-mono text-sm uppercase tracking-widest">Neural Network Synced</p>
+                      <motion.div 
+                        animate={{ 
+                          scale: [1, 1.05, 1],
+                          boxShadow: [
+                            '0 0 40px rgba(56, 189, 248, 0.1)',
+                            '0 0 80px rgba(56, 189, 248, 0.3)',
+                            '0 0 40px rgba(56, 189, 248, 0.1)'
+                          ]
+                        }}
+                        transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
+                        className="w-48 h-48 rounded-full bg-slate-950 border-4 border-slate-900 flex items-center justify-center relative z-10"
+                        style={{ filter: 'url(#neural-glow)' }}
+                      >
+                        <div className="absolute inset-2 border border-sky-500/10 rounded-full animate-[spin_12s_linear_infinite]" />
+                        <div className="absolute inset-4 border border-sky-500/20 rounded-full animate-[spin_8s_linear_infinite_reverse]" />
+                        <Globe className={cn(
+                          "w-16 h-16 transition-all duration-700",
+                          isAITurn ? "text-sky-400 scale-110 drop-shadow-[0_0_15px_rgba(56,189,248,0.5)]" : "text-slate-800"
+                        )} />
+                      </motion.div>
+                    </div>
+
+                    <div className="mt-12 text-center space-y-4">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="font-mono text-[9px] uppercase tracking-[0.5em] text-sky-500/60 font-black">Neural Processor</span>
+                        <h3 className="text-3xl font-black uppercase tracking-tighter text-slate-100 italic">Memory Buffer</h3>
+                      </div>
+                      
+                      <div className="flex items-center justify-center gap-6 pt-4">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] font-black uppercase mb-1 text-slate-500 tracking-widest">Active Node</span>
+                          <motion.span 
+                            key={recallIndex}
+                            initial={{ scale: 1.5, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="text-5xl font-black text-sky-400 italic"
+                          >
+                            {String(recallIndex + 1).padStart(2, '0')}
+                          </motion.span>
                         </div>
+                        <div className="w-px h-12 bg-slate-800" />
+                        <div className="flex flex-col items-center">
+                          <span className="text-[10px] font-black uppercase mb-1 text-slate-700 tracking-widest">Capacity</span>
+                          <span className="text-5xl font-black text-slate-800 italic">{String(gameState.chain.length).padStart(2, '0')}</span>
+                        </div>
+                      </div>
+
+                      {isAITurn && (
+                        <motion.p 
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: [0, 1, 0] }}
+                          transition={{ repeat: Infinity, duration: 1.5 }}
+                          className="text-sky-400 font-mono text-[10px] tracking-[0.3em] uppercase pt-4"
+                        >
+                          Synthesizing Output...
+                        </motion.p>
                       )}
                     </div>
                   </div>
@@ -452,22 +714,77 @@ export default function App() {
                   {/* Input Interaction Area */}
                   <div className="flex flex-col sm:flex-row gap-4 items-stretch">
                     <div className="flex-1 relative group">
-                      <div className="absolute left-6 top-1/2 -translate-y-1/2">
+                      <div className="absolute left-6 top-1/2 -translate-y-1/2 flex items-center gap-4">
                         <Search className="w-5 h-5 text-slate-600" />
                       </div>
                       <input
+                        ref={inputRef}
                         autoFocus
                         disabled={isAITurn}
                         type="text"
                         className={cn(
-                          "w-full h-20 bg-slate-900 rounded-3xl border-2 border-slate-800 px-16 text-2xl font-black uppercase tracking-tighter outline-none focus:border-sky-500 transition-all placeholder:text-slate-800",
-                          isAITurn && "opacity-50 grayscale"
+                          "w-full h-20 bg-slate-900 rounded-3xl border-2 border-slate-800 pl-16 pr-24 text-2xl font-black uppercase tracking-tighter outline-none focus:border-sky-500 transition-all placeholder:text-slate-800",
+                          isAITurn && "opacity-50 grayscale",
+                          isListening && "border-sky-500 shadow-[0_0_15px_rgba(14,165,233,0.2)]"
                         )}
-                        placeholder={recallIndex < gameState.chain.length ? `RECALL #${recallIndex + 1}...` : "APPEND NEW NODE..."}
+                        placeholder={isListening ? "Listening..." : (recallIndex < gameState.chain.length ? `RECALL #${recallIndex + 1}...` : "APPEND NEW NODE...")}
                         value={currentInput}
                         onChange={(e) => setCurrentInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && handleInputSubmit()}
                       />
+                      
+                      {/* Suggestions Overlay */}
+                      <AnimatePresence>
+                        {suggestions.length > 0 && !isAITurn && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 10 }}
+                            className="absolute bottom-[105%] left-0 w-full bg-slate-900 border-2 border-slate-800 rounded-2xl overflow-hidden shadow-2xl z-20"
+                          >
+                            <div className="flex gap-1 p-2">
+                              {suggestions.map((s, i) => (
+                                <button
+                                  key={s}
+                                  onClick={() => {
+                                    setCurrentInput(s);
+                                    handleInputSubmit(undefined, s);
+                                  }}
+                                  className="flex-1 px-4 py-3 bg-slate-950 hover:bg-sky-500 hover:text-slate-950 text-sky-400 font-black uppercase tracking-tighter text-sm transition-all rounded-xl truncate"
+                                >
+                                  {s}
+                                </button>
+                              ))}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      <button
+                        onClick={toggleListening}
+                        disabled={isAITurn}
+                        className={cn(
+                          "absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-2xl flex items-center justify-center transition-all",
+                          isListening 
+                            ? "bg-red-500 text-white animate-pulse" 
+                            : "bg-slate-800 text-slate-400 hover:text-sky-400 hover:bg-slate-700"
+                        )}
+                        title={isListening ? "Stop Listening" : "Speak Input"}
+                      >
+                        {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                      </button>
+                    </div>
+                    {/* Speech Prompt for iframe issues */}
+                    <div className="absolute -top-6 left-6 text-[9px] font-mono text-slate-600 uppercase tracking-widest flex items-center gap-2">
+                       <span>Speech disabled?</span>
+                       <a 
+                         href={window.location.href} 
+                         target="_blank" 
+                         rel="noopener noreferrer"
+                         className="text-sky-500 hover:underline flex items-center gap-1"
+                       >
+                         Open in New Tab <Globe className="w-2 h-2" />
+                       </a>
                     </div>
                     <button 
                       onClick={() => handleInputSubmit()}
@@ -536,20 +853,81 @@ export default function App() {
         </div>
       </footer>
 
+      {/* HOW TO PLAY MODAL */}
+      <AnimatePresence>
+        {showHowTo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[100] flex items-center justify-center p-6"
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-slate-900 border-2 border-slate-800 p-10 rounded-[2.5rem] max-w-2xl w-full shadow-2xl relative"
+            >
+              <button 
+                onClick={() => setShowHowTo(false)}
+                className="absolute top-6 right-6 p-2 text-slate-500 hover:text-white transition-colors"
+              >
+                <Plus className="w-8 h-8 rotate-45" />
+              </button>
+
+              <h2 className="text-4xl font-black uppercase italic tracking-tighter mb-8">System Manual</h2>
+              
+              <div className="space-y-8 text-slate-400">
+                <section>
+                  <h3 className="text-sky-400 font-black uppercase tracking-widest text-xs mb-3">Objective</h3>
+                  <p>Build a chain of items from the selected domain. Each player must repeat the ENTIRE sequence before adding a new item.</p>
+                </section>
+
+                <section>
+                  <h3 className="text-sky-400 font-black uppercase tracking-widest text-xs mb-3">Turn Sequence</h3>
+                  <ol className="list-decimal list-inside space-y-2">
+                    <li>Recall: Enter items 1 to N of the current chain in order.</li>
+                    <li>Append: Enter a NEW, unique item to grow the chain.</li>
+                  </ol>
+                </section>
+
+                <section>
+                  <h3 className="text-sky-400 font-black uppercase tracking-widest text-xs mb-3">Voice Control Troubleshooting</h3>
+                  <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800 text-sm">
+                    <p className="mb-2 italic text-slate-300 underline font-bold">Fixing "service-not-allowed" or "not-allowed":</p>
+                    <ul className="list-disc list-inside space-y-1">
+                      <li>Click the <strong className="text-sky-400">"Open in New Tab"</strong> icon (top right). Browser security often blocks microphones inside frames.</li>
+                      <li>Check your browser address bar for a <strong className="text-red-400">Microphone Blocked</strong> icon.</li>
+                      <li>Reload the page after granting permission.</li>
+                    </ul>
+                  </div>
+                </section>
+              </div>
+
+              <button 
+                onClick={() => setShowHowTo(false)}
+                className="mt-10 w-full bg-slate-50 text-slate-950 py-4 rounded-2xl font-black uppercase tracking-tighter hover:bg-white transition-all"
+              >
+                Acknowledge Protocol
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* FEEDBACK TOAST */}
       <AnimatePresence>
         {feedback && (
           <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, scale: 0.9 }}
-            className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100]"
+            className="fixed top-12 right-12 z-[100]"
           >
             <div className={cn(
               "px-8 py-4 rounded-2xl text-slate-950 font-black uppercase tracking-tighter text-lg shadow-2xl flex items-center gap-4 border-b-4",
               feedback.type === 'error' ? "bg-red-500 border-red-700" : "bg-sky-500 border-sky-700"
             )}>
-              {feedback.type === 'error' ? <AlertCircle className="w-6 h-6" /> : <MapPin className="w-6 h-6" />}
+              {feedback.type === 'error' ? <AlertCircle className="w-6 h-6" /> : <Trophy className="w-6 h-6" />}
               {feedback.message}
             </div>
           </motion.div>

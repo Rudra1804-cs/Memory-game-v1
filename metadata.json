@@ -1,6 +1,6 @@
 {
   "name": "Country Memory Master",
   "description": "A turn-based memory challenge where players build an ever-growing chain of countries. AI included!",
-  "requestFramePermissions": [],
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": []
 }
