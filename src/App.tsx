@@ -752,7 +752,10 @@ export default function App() {
               <div className="space-y-8 text-slate-400">
                 <section>
                   <h3 className="text-sky-400 font-black uppercase tracking-widest text-xs mb-3">Objective</h3>
-                  <p>Build a chain of items from the selected domain. Each player must repeat the ENTIRE sequence before adding a new item.</p>
+                  <p className="mb-4 text-sm leading-relaxed">
+                    Neural Chain is a high-stakes cognitive memory game where players compete to build and recall an ever-growing sequence of items within specific domains. Designed with a sleek, minimalist cyberpunk aesthetic, the app challenges your brain to accurately replay the entire sequence before appending a new unique node, creating a tense battle of mental endurance against sophisticated AI units.
+                  </p>
+                  <p className="text-sm">Build a chain of items from the selected domain. Each player must repeat the ENTIRE sequence before adding a new item.</p>
                 </section>
 
                 <section>
