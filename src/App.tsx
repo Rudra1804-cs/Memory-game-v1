@@ -5,7 +5,7 @@
 
 import { useState, useEffect, useRef, useCallback, FormEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Users, RefreshCw, AlertCircle, Play, ChevronRight, MapPin, Search, Plus, Apple, User, Film, Globe, Mic, MicOff } from 'lucide-react';
+import { Trophy, Users, RefreshCw, AlertCircle, Play, ChevronRight, MapPin, Search, Plus, Apple, User, Film, Globe } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { cn } from './lib/utils';
 import { TOPICS } from './constants';
@@ -23,13 +23,11 @@ export default function App() {
   const [playerCountInput, setPlayerCountInput] = useState<string>('2');
   const [selectedTopic, setSelectedTopic] = useState<TopicKey>('countries');
   const [currentInput, setCurrentInput] = useState<string>('');
-  const [isListening, setIsListening] = useState<boolean>(false);
   const [recallIndex, setRecallIndex] = useState<number>(0);
   const [topicLog, setTopicLog] = useState<{ item: string, player: string }[]>([]);
   const [showHowTo, setShowHowTo] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const feedbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const players = gameState.players;
@@ -42,104 +40,6 @@ export default function App() {
     setFeedback({ type, message });
     feedbackTimeoutRef.current = setTimeout(() => setFeedback(null), 3000);
   }, []);
-
-  useEffect(() => {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SpeechRecognition) {
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      recognition.lang = 'en-US';
-
-      recognition.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((result: any) => result[0])
-          .map((result: any) => result.transcript)
-          .join('');
-        setCurrentInput(transcript);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognition.onerror = (event: any) => {
-        let message = `Speech error: ${event.error}`;
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          message = 'Microphone blocked. Click "OPEN IN NEW TAB" top right.';
-          showFeedback('error', message);
-          setShowHowTo(true); 
-        } else if (event.error === 'no-speech') {
-          setIsListening(false);
-          return;
-        } else if (event.error === 'network') {
-          message = 'Network error during speech recognition.';
-          showFeedback('error', message);
-        } else if (event.error === 'aborted') {
-          setIsListening(false);
-          return;
-        } else {
-          console.error('Speech recognition error', event.error);
-          showFeedback('error', message);
-        }
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-    }
-  }, [showFeedback]);
-
-  const toggleListening = () => {
-    if (isListening) {
-      try {
-        recognitionRef.current?.stop();
-      } catch (err) {
-        console.error('Stop error:', err);
-      }
-      setIsListening(false);
-    } else {
-      if (!recognitionRef.current) {
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        if (!SpeechRecognition) {
-          showFeedback('error', 'Speech recognition is not supported in this browser.');
-          return;
-        }
-        const recognition = new SpeechRecognition();
-        recognition.continuous = false;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-        recognition.onresult = (event: any) => {
-          const transcript = Array.from(event.results)
-            .map((result: any) => result[0])
-            .map((result: any) => result.transcript)
-            .join('');
-          setCurrentInput(transcript);
-        };
-        recognition.onend = () => setIsListening(false);
-        recognition.onerror = (event: any) => {
-          console.error('Speech error:', event.error);
-          if (event.error !== 'no-speech' && event.error !== 'aborted') {
-            showFeedback('error', `Speech error: ${event.error}. Try checking microphone permissions.`);
-          }
-          setIsListening(false);
-        };
-        recognitionRef.current = recognition;
-      }
-      
-      try {
-        recognitionRef.current.start();
-        setIsListening(true);
-      } catch (err: any) {
-        if (err.name === 'InvalidStateError') {
-          setIsListening(true);
-        } else {
-          console.error('Failed to start recognition:', err);
-          showFeedback('error', 'Could not start microphone. Ensure it is not in use.');
-          setIsListening(false);
-        }
-      }
-    }
-  };
 
   const startGame = () => {
     const aiCount = parseInt(playerCountInput);
@@ -723,11 +623,10 @@ export default function App() {
                         disabled={isAITurn}
                         type="text"
                         className={cn(
-                          "w-full h-20 bg-slate-900 rounded-3xl border-2 border-slate-800 pl-16 pr-24 text-2xl font-black uppercase tracking-tighter outline-none focus:border-sky-500 transition-all placeholder:text-slate-800",
-                          isAITurn && "opacity-50 grayscale",
-                          isListening && "border-sky-500 shadow-[0_0_15px_rgba(14,165,233,0.2)]"
+                          "w-full h-20 bg-slate-900 rounded-3xl border-2 border-slate-800 pl-16 pr-8 text-2xl font-black uppercase tracking-tighter outline-none focus:border-sky-500 transition-all placeholder:text-slate-800",
+                          isAITurn && "opacity-50 grayscale"
                         )}
-                        placeholder={isListening ? "Listening..." : (recallIndex < gameState.chain.length ? `RECALL #${recallIndex + 1}...` : "APPEND NEW NODE...")}
+                        placeholder={recallIndex < gameState.chain.length ? `RECALL #${recallIndex + 1}...` : "APPEND NEW NODE..."}
                         value={currentInput}
                         onChange={(e) => setCurrentInput(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && handleInputSubmit()}
@@ -759,32 +658,6 @@ export default function App() {
                           </motion.div>
                         )}
                       </AnimatePresence>
-
-                      <button
-                        onClick={toggleListening}
-                        disabled={isAITurn}
-                        className={cn(
-                          "absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-2xl flex items-center justify-center transition-all",
-                          isListening 
-                            ? "bg-red-500 text-white animate-pulse" 
-                            : "bg-slate-800 text-slate-400 hover:text-sky-400 hover:bg-slate-700"
-                        )}
-                        title={isListening ? "Stop Listening" : "Speak Input"}
-                      >
-                        {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                      </button>
-                    </div>
-                    {/* Speech Prompt for iframe issues */}
-                    <div className="absolute -top-6 left-6 text-[9px] font-mono text-slate-600 uppercase tracking-widest flex items-center gap-2">
-                       <span>Speech disabled?</span>
-                       <a 
-                         href={window.location.href} 
-                         target="_blank" 
-                         rel="noopener noreferrer"
-                         className="text-sky-500 hover:underline flex items-center gap-1"
-                       >
-                         Open in New Tab <Globe className="w-2 h-2" />
-                       </a>
                     </div>
                     <button 
                       onClick={() => handleInputSubmit()}
@@ -888,18 +761,6 @@ export default function App() {
                     <li>Recall: Enter items 1 to N of the current chain in order.</li>
                     <li>Append: Enter a NEW, unique item to grow the chain.</li>
                   </ol>
-                </section>
-
-                <section>
-                  <h3 className="text-sky-400 font-black uppercase tracking-widest text-xs mb-3">Voice Control Troubleshooting</h3>
-                  <div className="bg-slate-950/50 p-4 rounded-xl border border-slate-800 text-sm">
-                    <p className="mb-2 italic text-slate-300 underline font-bold">Fixing "service-not-allowed" or "not-allowed":</p>
-                    <ul className="list-disc list-inside space-y-1">
-                      <li>Click the <strong className="text-sky-400">"Open in New Tab"</strong> icon (top right). Browser security often blocks microphones inside frames.</li>
-                      <li>Check your browser address bar for a <strong className="text-red-400">Microphone Blocked</strong> icon.</li>
-                      <li>Reload the page after granting permission.</li>
-                    </ul>
-                  </div>
                 </section>
               </div>
 
